@@ -17,6 +17,7 @@ function pinoLogger (opts, stream) {
   var reqKey = opts.customAttributeKeys.req || 'req'
   var resKey = opts.customAttributeKeys.res || 'res'
   var errKey = opts.customAttributeKeys.err || 'err'
+  var finishedKey = opts.customAttributeKeys.finished || 'finished'
   var responseTimeKey = opts.customAttributeKeys.responseTime || 'responseTime'
   delete opts.customAttributeKeys
 
@@ -51,6 +52,7 @@ function pinoLogger (opts, stream) {
   var autoLoggingGetPath = opts.autoLogging && opts.autoLogging.getPath ? opts.autoLogging.getPath : null
   delete opts.autoLogging
 
+  var onlyLogFinishedRequest = (opts.onlyLogFinishedRequest !== false)
   var successMessage = opts.customSuccessMessage || function () { return 'request completed' }
   var errorMessage = opts.customErrorMessage || function () { return 'request errored' }
   delete opts.customSuccessfulMessage
@@ -63,15 +65,20 @@ function pinoLogger (opts, stream) {
 
   function onResFinished (err) {
     this.removeListener('error', onResFinished)
+<<<<<<< Updated upstream
+=======
     this.removeListener('finish', onResFinished)
+>>>>>>> Stashed changes
+    this.removeListener('close', onResFinished)
 
     var log = this.log
+    var requestLogged = !!this.requestLogged
     var responseTime = Date.now() - this[startTime]
     var level = customLogLevel ? customLogLevel(this, err) : useLevel
 
     if (err || this.err || this.statusCode >= 500) {
       var error = err || this.err || new Error('failed with status code ' + this.statusCode)
-
+      requestLogged = true
       log[level]({
         [resKey]: this,
         [errKey]: error,
@@ -80,9 +87,22 @@ function pinoLogger (opts, stream) {
       return
     }
 
+    if (onlyLogFinishedRequest && !this.writableEnded) {
+      return
+    }
+
+<<<<<<< Updated upstream
+=======
+    if (requestLogged) {
+      return
+    }
+
+    requestLogged = true
+>>>>>>> Stashed changes
     log[level]({
       [resKey]: this,
-      [responseTimeKey]: responseTime
+      [responseTimeKey]: responseTime,
+      [finishedKey]: this.writableEnded
     }, successMessage(this))
   }
 
@@ -122,6 +142,7 @@ function pinoLogger (opts, stream) {
 
       if (shouldLogSuccess) {
         res.on('finish', onResFinished)
+        res.on('close', onResFinished)
       }
 
       res.on('error', onResFinished)
