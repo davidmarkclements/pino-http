@@ -17,7 +17,9 @@ function pinoLogger (opts, stream) {
   var reqKey = opts.customAttributeKeys.req || 'req'
   var resKey = opts.customAttributeKeys.res || 'res'
   var errKey = opts.customAttributeKeys.err || 'err'
+  var finishedKey = opts.customAttributeKeys.finished || 'finished'
   var responseTimeKey = opts.customAttributeKeys.responseTime || 'responseTime'
+  var onlyLogFinishedRequest = typeof opts.onlyLogFinishedRequest === 'boolean' ? opts.onlyLogFinishedRequest : true
   delete opts.customAttributeKeys
 
   var customProps = opts.customProps || opts.reqCustomProps || {}
@@ -36,6 +38,10 @@ function pinoLogger (opts, stream) {
 
   if (opts.useLevel && opts.customLogLevel) {
     throw new Error("You can't pass 'useLevel' and 'customLogLevel' together")
+  }
+
+  if (onlyLogFinishedRequest === false && process.stdout.writableEnded === undefined) {
+    throw new Error("'onlyLogFinishedRequest': false requires Node v12.9.0 or later")
   }
 
   var useLevel = opts.useLevel || 'info'
@@ -62,8 +68,10 @@ function pinoLogger (opts, stream) {
   return loggingMiddleware
 
   function onResFinished (err) {
+    if (this.alreadyLogged) return
     this.removeListener('error', onResFinished)
     this.removeListener('finish', onResFinished)
+    if (!onlyLogFinishedRequest) this.removeListener('close', onResFinished)
 
     var log = this.log
     var responseTime = Date.now() - this[startTime]
@@ -71,19 +79,20 @@ function pinoLogger (opts, stream) {
 
     if (err || this.err || this.statusCode >= 500) {
       var error = err || this.err || new Error('failed with status code ' + this.statusCode)
-
       log[level]({
         [resKey]: this,
         [errKey]: error,
         [responseTimeKey]: responseTime
       }, errorMessage(error, this))
+      this.alreadyLogged = true
       return
     }
-
     log[level]({
       [resKey]: this,
-      [responseTimeKey]: responseTime
+      [responseTimeKey]: responseTime,
+      [finishedKey]: !onlyLogFinishedRequest ? this.writableEnded : true
     }, successMessage(this))
+    this.alreadyLogged = true
   }
 
   function loggingMiddleware (req, res, next) {
@@ -122,6 +131,9 @@ function pinoLogger (opts, stream) {
 
       if (shouldLogSuccess) {
         res.on('finish', onResFinished)
+        if (!onlyLogFinishedRequest) {
+          res.on('close', onResFinished)
+        }
       }
 
       res.on('error', onResFinished)
